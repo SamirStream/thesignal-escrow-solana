@@ -1,6 +1,7 @@
 import { useState, useCallback, useContext, createContext, useRef, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { PublicKey } from '@solana/web3.js';
 import {
   Award, Zap, ArrowRightLeft,
   Shield, FileText, LayoutDashboard,
@@ -14,6 +15,9 @@ import { Card, Button, Tag } from './components/ui/Components';
 import { KycVerification } from './components/KycVerification';
 import { ComplianceDashboard } from './components/ComplianceDashboard';
 import { BlocklistDemo } from './components/BlocklistDemo';
+import { CreateDeal } from './components/CreateDeal';
+import { DealDashboard } from './components/DealDashboard';
+import { ReputationBadge } from './components/ReputationBadge';
 import { useSolanaWallet } from './hooks/useSolanaWallet';
 import { useDealEscrow, DealData } from './hooks/useDealEscrow';
 import {
@@ -244,7 +248,7 @@ export default function App() {
         const results = await Promise.allSettled(
           Array.from({ length: n }, (_, i) => escrowRef.current.getDeal(start + i))
         );
-        const newItems: TickerItem[] = results.flatMap((r, idx) => {
+        const newItems: TickerItem[] = results.flatMap((r) => {
           if (r.status !== 'fulfilled' || !r.value) return [];
           return dealToTickerItems(r.value);
         });
@@ -266,166 +270,60 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [connected]);
 
-  // --- Deal creation state ---
-  const [providerAddr, setProviderAddr] = useState('');
-  const [connectorAddr, setConnectorAddr] = useState('');
-  const [platformFee, setPlatformFee] = useState(10);
-  const [connectorShare, setConnectorShare] = useState(40);
-  const [milestones, setMilestones] = useState([
-    { name: 'Phase 1 — Security Audit', amount: 3000 },
-    { name: 'Phase 2 — Implementation', amount: 5000 },
-    { name: 'Phase 3 — Final Review', amount: 2000 },
-  ]);
-  const [dealTitle, setDealTitle] = useState('Security Audit');
+  // --- Callback wrappers for extracted components ---
+  const handleCreateDeal = useCallback(async (
+    provider: string,
+    connector: string,
+    platformFeeBps: number,
+    connectorShareBps: number,
+    milestoneAmounts: number[],
+  ) => {
+    const result = await escrow.createDeal(provider, connector, platformFeeBps, connectorShareBps, milestoneAmounts);
+    addToast(`Deal #${result.dealId} deployed on-chain!`, 'success');
+    return result;
+  }, [escrow, addToast]);
 
-  // --- Deal list state ---
-  const [deals, setDeals] = useState<DealData[]>([]);
-  const [selectedDeal, setSelectedDeal] = useState<DealData | null>(null);
-  const [dealCount, setDealCount] = useState(0);
+  const handleDealCreated = useCallback((dealId: number) => {
+    setLastCreatedDealId(dealId);
+    setActiveTab('deals');
+  }, []);
 
-  // --- Reputation state ---
-  const [repAddress, setRepAddress] = useState('');
-  const [repScore, setRepScore] = useState<number | null>(null);
-  const [leaderboard, setLeaderboard] = useState<{ address: string; score: number }[]>([]);
+  const handleDeposit = useCallback(async (dealId: number, milestoneIdx: number) => {
+    const result = await escrow.deposit(dealId, milestoneIdx);
+    recordMilestoneEvent(dealId, milestoneIdx, {
+      action: 'funded', timestamp: new Date().toISOString(), txHash: result.txHash,
+    });
+    addToast(`Milestone ${milestoneIdx + 1} funded!`, 'success');
+    return result;
+  }, [escrow, addToast]);
 
-  // --- Refresh deals ---
-  const refreshDeals = useCallback(async () => {
-    if (!connected) return;
-    try {
-      const count = await escrow.getDealCount();
-      setDealCount(count);
-      const loaded: DealData[] = [];
-      for (let i = 0; i < Math.min(count, 20); i++) {
-        const deal = await escrow.getDeal(i);
-        if (deal) loaded.push(deal);
-      }
-      setDeals(loaded);
-    } catch (err) {
-      console.error('Failed to fetch deals:', err);
-    }
-  }, [connected, escrow]);
+  const handleRelease = useCallback(async (
+    dealId: number,
+    milestoneIdx: number,
+    provider: string,
+    connector: string,
+    protocolWallet: string,
+  ) => {
+    const result = await escrow.releaseMilestone(dealId, milestoneIdx, provider, connector, protocolWallet);
+    recordMilestoneEvent(dealId, milestoneIdx, {
+      action: 'released', timestamp: new Date().toISOString(), txHash: result.txHash,
+    });
+    addToast(`Milestone ${milestoneIdx + 1} released with atomic 3-way split!`, 'success');
+    return result;
+  }, [escrow, addToast]);
 
-  useEffect(() => {
-    if (connected && activeTab === 'deals') refreshDeals();
-  }, [connected, activeTab, refreshDeals]);
+  const handleDispute = useCallback(async (dealId: number, milestoneIdx: number) => {
+    const result = await escrow.dispute(dealId, milestoneIdx);
+    recordMilestoneEvent(dealId, milestoneIdx, {
+      action: 'disputed', timestamp: new Date().toISOString(), txHash: result.txHash,
+    });
+    addToast('Dispute filed on-chain', 'info');
+    return result;
+  }, [escrow, addToast]);
 
-  // Auto-navigate to deals after creation
-  useEffect(() => {
-    if (lastCreatedDealId !== null && activeTab === 'deals') {
-      refreshDeals();
-    }
-  }, [lastCreatedDealId, activeTab, refreshDeals]);
-
-  // --- Create Deal ---
-  const handleCreateDeal = async () => {
-    if (!isValidSolanaAddress(providerAddr)) {
-      addToast('Invalid provider Solana address', 'error');
-      return;
-    }
-    if (!isValidSolanaAddress(connectorAddr)) {
-      addToast('Invalid connector Solana address', 'error');
-      return;
-    }
-    if (milestones.length === 0) {
-      addToast('Add at least one milestone', 'error');
-      return;
-    }
-    try {
-      const amounts = milestones.map(m => toContractAmount(m.amount));
-      const { dealId, txHash } = await escrow.createDeal(
-        providerAddr, connectorAddr,
-        platformFee * 100, connectorShare * 100,
-        amounts,
-      );
-      saveDealMetadata(dealId, {
-        title: dealTitle,
-        description: '',
-        milestoneNames: milestones.map(m => m.name),
-        createdAt: new Date().toISOString(),
-        txHash,
-      });
-      addToast(`Deal #${dealId} deployed on-chain!`, 'success');
-      setLastCreatedDealId(dealId);
-      setActiveTab('deals');
-      refreshDeals();
-    } catch (err: any) {
-      addToast(`Failed: ${err.message}`, 'error');
-    }
-  };
-
-  // --- Deposit ---
-  const handleDeposit = async (dealId: number, milestoneIdx: number) => {
-    try {
-      const { txHash } = await escrow.deposit(dealId, milestoneIdx);
-      recordMilestoneEvent(dealId, milestoneIdx, {
-        action: 'funded', timestamp: new Date().toISOString(), txHash,
-      });
-      addToast(`Milestone ${milestoneIdx + 1} funded!`, 'success');
-      const updated = await escrow.getDeal(dealId);
-      if (updated) setSelectedDeal(updated);
-      refreshDeals();
-    } catch (err: any) {
-      addToast(`Deposit failed: ${err.message}`, 'error');
-    }
-  };
-
-  // --- Release ---
-  const handleRelease = async (deal: DealData, milestoneIdx: number) => {
-    try {
-      const { txHash } = await escrow.releaseMilestone(
-        deal.dealId, milestoneIdx,
-        deal.provider, deal.connector, deal.protocolWallet,
-      );
-      const amount = deal.milestones[milestoneIdx].amount;
-      const fee = Math.floor(amount * deal.platformFeeBps / 10000);
-      const connCut = Math.floor(fee * deal.connectorShareBps / 10000);
-      recordMilestoneEvent(deal.dealId, milestoneIdx, {
-        action: 'released', timestamp: new Date().toISOString(), txHash,
-        split: {
-          providerAmount: formatAmount(amount - fee),
-          connectorAmount: formatAmount(connCut),
-          protocolAmount: formatAmount(fee - connCut),
-        },
-      });
-      addToast(`Milestone ${milestoneIdx + 1} released with atomic 3-way split!`, 'success');
-      const updated = await escrow.getDeal(deal.dealId);
-      if (updated) setSelectedDeal(updated);
-      refreshDeals();
-    } catch (err: any) {
-      addToast(`Release failed: ${err.message}`, 'error');
-    }
-  };
-
-  // --- Dispute ---
-  const handleDispute = async (dealId: number, milestoneIdx: number) => {
-    try {
-      const { txHash } = await escrow.dispute(dealId, milestoneIdx);
-      recordMilestoneEvent(dealId, milestoneIdx, {
-        action: 'disputed', timestamp: new Date().toISOString(), txHash,
-      });
-      addToast('Dispute filed on-chain', 'info');
-      const updated = await escrow.getDeal(dealId);
-      if (updated) setSelectedDeal(updated);
-      refreshDeals();
-    } catch (err: any) {
-      addToast(`Dispute failed: ${err.message}`, 'error');
-    }
-  };
-
-  // --- Reputation ---
-  const handleRepLookup = async () => {
-    if (!isValidSolanaAddress(repAddress)) {
-      addToast('Invalid Solana address', 'error');
-      return;
-    }
-    try {
-      const { PublicKey } = await import('@solana/web3.js');
-      const score = await escrow.getReputation(new PublicKey(repAddress));
-      setRepScore(score);
-    } catch {
-      setRepScore(0);
-    }
-  };
+  const handleGetReputation = useCallback(async (address: string) => {
+    return escrow.getReputation(new PublicKey(address));
+  }, [escrow]);
 
   // --- Wallet chip ---
   const truncWallet = wallet.address ? `${wallet.address.slice(0, 4)}...${wallet.address.slice(-4)}` : '';
@@ -437,29 +335,7 @@ export default function App() {
     setTimeout(() => setCopied(false), 2000);
   }, [wallet.address]);
 
-  const statusColor = (status: string): 'emerald' | 'amber' | 'red' | 'blue' | 'zinc' => {
-    switch (status) {
-      case 'Active': case 'Completed': return 'emerald';
-      case 'Created': return 'blue';
-      case 'Disputed': return 'red';
-      case 'Cancelled': return 'zinc';
-      default: return 'zinc';
-    }
-  };
-
-  const milestoneStatusColor = (status: string): string => {
-    switch (status) {
-      case 'Funded': return 'text-emerald-400';
-      case 'Released': return 'text-green-300';
-      case 'Pending': return 'text-zinc-500';
-      case 'Disputed': return 'text-red-400';
-      case 'Refunded': return 'text-amber-400';
-      default: return 'text-zinc-500';
-    }
-  };
-
   const handleWalletConnect = useCallback(() => {
-    // WalletMultiButton handles this, but we need a callback for the landing page
     document.querySelector<HTMLButtonElement>('.wallet-adapter-button')?.click();
   }, []);
 
@@ -554,510 +430,35 @@ export default function App() {
           {!connected ? (
             <LandingView onConnect={handleWalletConnect} />
           ) : activeTab === 'compliance' ? (
-            /* --- COMPLIANCE TAB --- */
             <div className="space-y-8 animate-fade-in">
               <KycVerification address={wallet.address} onToast={addToast} />
               <ComplianceDashboard />
               <BlocklistDemo onToast={addToast} />
             </div>
           ) : activeTab === 'create' ? (
-            /* --- CREATE DEAL TAB --- */
-            <div className="max-w-2xl mx-auto space-y-6 animate-fade-in">
-              <Card className="p-6 lg:p-8">
-                <div className="flex items-center gap-3 mb-8">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                    <FileText size={20} className="text-emerald-400" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-display text-white">Deploy New Contract</h2>
-                    <p className="text-xs text-zinc-500">Create an on-chain escrow with milestone-locked payments</p>
-                  </div>
-                </div>
-
-                <div className="space-y-5">
-                  <div>
-                    <label className="block text-zinc-400 text-xs uppercase tracking-wider mb-2">Deal Title</label>
-                    <input
-                      type="text"
-                      value={dealTitle}
-                      onChange={e => setDealTitle(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                      placeholder="Security Audit — Q1 2026"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-zinc-400 text-xs uppercase tracking-wider mb-2">Provider Address</label>
-                    <input
-                      type="text"
-                      value={providerAddr}
-                      onChange={e => setProviderAddr(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                      placeholder="Provider Solana address..."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-zinc-400 text-xs uppercase tracking-wider mb-2">Connector (BD) Address</label>
-                    <input
-                      type="text"
-                      value={connectorAddr}
-                      onChange={e => setConnectorAddr(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                      placeholder="Business dev Solana address..."
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-zinc-400 text-xs uppercase tracking-wider mb-2">Platform Fee (%)</label>
-                      <input
-                        type="number"
-                        value={platformFee}
-                        onChange={e => setPlatformFee(Number(e.target.value))}
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
-                        min={0} max={50}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-zinc-400 text-xs uppercase tracking-wider mb-2">Connector Share (%)</label>
-                      <input
-                        type="number"
-                        value={connectorShare}
-                        onChange={e => setConnectorShare(Number(e.target.value))}
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
-                        min={0} max={100}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Milestones */}
-                  <div>
-                    <label className="block text-zinc-400 text-xs uppercase tracking-wider mb-3">
-                      Milestones ({milestones.length}/10)
-                    </label>
-                    <div className="space-y-2">
-                      {milestones.map((m, i) => (
-                        <div key={i} className="flex gap-2 group">
-                          <input
-                            type="text"
-                            value={m.name}
-                            onChange={e => {
-                              const updated = [...milestones];
-                              updated[i] = { ...updated[i], name: e.target.value };
-                              setMilestones(updated);
-                            }}
-                            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                            placeholder="Milestone name"
-                          />
-                          <div className="relative">
-                            <input
-                              type="number"
-                              value={m.amount}
-                              onChange={e => {
-                                const updated = [...milestones];
-                                updated[i] = { ...updated[i], amount: Number(e.target.value) };
-                                setMilestones(updated);
-                              }}
-                              className="w-32 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                              placeholder="Amount"
-                              min={1}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            title="Remove milestone"
-                            onClick={() => setMilestones(milestones.filter((_, idx) => idx !== i))}
-                            className="text-zinc-700 hover:text-red-400 p-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                      ))}
-                      {milestones.length < 10 && (
-                        <button
-                          onClick={() => setMilestones([...milestones, { name: `Phase ${milestones.length + 1}`, amount: 1000 }])}
-                          className="text-emerald-400 text-sm hover:text-emerald-300 font-medium"
-                        >
-                          + Add Milestone
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Fee Breakdown Visual */}
-                  <div className="bg-zinc-900/50 rounded-xl p-5 border border-zinc-800">
-                    <p className="text-zinc-400 text-xs uppercase tracking-wider mb-4 font-bold">Fee Breakdown per Release</p>
-                    {/* Visual bar */}
-                    <div className="h-3 rounded-full overflow-hidden flex mb-4 bg-zinc-800">
-                      <div className="bg-emerald-500 transition-all" style={{ width: `${100 - platformFee}%` }} title="Provider" />
-                      <div className="bg-blue-500 transition-all" style={{ width: `${platformFee * connectorShare / 100}%` }} title="Connector" />
-                      <div className="bg-purple-500 transition-all" style={{ width: `${platformFee * (100 - connectorShare) / 100}%` }} title="Protocol" />
-                    </div>
-                    <div className="grid grid-cols-3 gap-4 text-center">
-                      <div>
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 mx-auto mb-1" />
-                        <p className="text-white font-bold text-lg">{100 - platformFee}%</p>
-                        <p className="text-zinc-500 text-xs">Provider</p>
-                      </div>
-                      <div>
-                        <div className="w-2 h-2 rounded-full bg-blue-500 mx-auto mb-1" />
-                        <p className="text-white font-bold text-lg">{(platformFee * connectorShare / 100).toFixed(1)}%</p>
-                        <p className="text-zinc-500 text-xs">Connector</p>
-                      </div>
-                      <div>
-                        <div className="w-2 h-2 rounded-full bg-purple-500 mx-auto mb-1" />
-                        <p className="text-white font-bold text-lg">{(platformFee * (100 - connectorShare) / 100).toFixed(1)}%</p>
-                        <p className="text-zinc-500 text-xs">Protocol</p>
-                      </div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-zinc-800 text-center">
-                      <p className="text-zinc-400 text-sm">Total Deal Value: <span className="text-emerald-400 font-bold text-lg">{milestones.reduce((s, m) => s + m.amount, 0).toLocaleString()} vUSDC</span></p>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleCreateDeal}
-                    disabled={escrow.isProcessing}
-                    className="w-full bg-emerald-500 text-[#02040a] font-black py-4 rounded-xl hover:shadow-[0_0_35px_rgba(16,185,129,0.5)] transition-all disabled:opacity-50 uppercase tracking-wider text-sm"
-                  >
-                    {escrow.isProcessing ? 'Deploying Contract...' : 'Deploy Escrow Contract'}
-                  </button>
-                </div>
-              </Card>
-            </div>
+            <CreateDeal
+              onCreateDeal={handleCreateDeal}
+              onDealCreated={handleDealCreated}
+            />
           ) : activeTab === 'deals' ? (
-            /* --- DEALS TAB --- */
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
-              {/* Deal List */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-display text-white">Active Contracts ({dealCount})</h2>
-                  <button onClick={refreshDeals} className="text-emerald-400 text-xs hover:text-emerald-300 font-bold uppercase tracking-wider">
-                    Refresh
-                  </button>
-                </div>
-                {deals.length === 0 ? (
-                  <Card className="p-8 text-center">
-                    <LayoutDashboard className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
-                    <p className="text-zinc-500 mb-4">No contracts deployed yet</p>
-                    <Button onClick={() => setActiveTab('create')} variant="primary" className="mx-auto">
-                      Deploy First Contract
-                    </Button>
-                  </Card>
-                ) : (
-                  deals.map(deal => (
-                    <Card
-                      key={deal.dealId}
-                      className={`p-4 cursor-pointer transition-all ${selectedDeal?.dealId === deal.dealId ? 'border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : ''}`}
-                      hoverEffect
-                      onClick={() => setSelectedDeal(deal)}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-white font-bold">Deal #{deal.dealId}</span>
-                        <Tag color={statusColor(deal.status)}>{deal.status}</Tag>
-                      </div>
-                      <p className="text-zinc-400 text-xs">
-                        {formatAmount(deal.totalAmount)} vUSDC | {deal.milestoneCount} milestones
-                      </p>
-                      <p className="text-zinc-600 text-xs mt-1 font-mono">
-                        Provider: {truncateAddress(deal.provider)}
-                      </p>
-                      {/* Progress bar */}
-                      <div className="mt-3 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-                        <div
-                          className="h-full bg-emerald-500 rounded-full transition-all"
-                          style={{
-                            width: `${deal.milestones.filter(m => m.status === 'Released').length / deal.milestoneCount * 100}%`
-                          }}
-                        />
-                      </div>
-                    </Card>
-                  ))
-                )}
-              </div>
-
-              {/* Deal Detail */}
-              <div className="lg:col-span-2">
-                {selectedDeal ? (
-                  <Card className="p-6 lg:p-8">
-                    <div className="flex items-center justify-between mb-6">
-                      <div>
-                        <h3 className="text-xl font-display text-white">Deal #{selectedDeal.dealId}</h3>
-                        <p className="text-zinc-400 text-sm">{formatAmount(selectedDeal.totalAmount)} vUSDC total</p>
-                      </div>
-                      <Tag color={statusColor(selectedDeal.status)}>{selectedDeal.status}</Tag>
-                    </div>
-
-                    {/* Participants */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-                      {[
-                        { role: 'Client', addr: selectedDeal.client, icon: '🏢' },
-                        { role: 'Provider', addr: selectedDeal.provider, icon: '🔧' },
-                        { role: 'Connector', addr: selectedDeal.connector, icon: '🤝' },
-                      ].map(({ role, addr, icon }) => (
-                        <div key={role} className="bg-zinc-900/50 rounded-xl p-3 border border-zinc-800">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span>{icon}</span>
-                            <p className="text-zinc-500 text-xs font-bold uppercase tracking-wider">{role}</p>
-                          </div>
-                          <p className="text-white font-mono text-xs">{truncateAddress(addr)}</p>
-                          {addr === wallet.address && (
-                            <Tag color="emerald" className="mt-1">You</Tag>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Fee Structure */}
-                    <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800 mb-6">
-                      <div className="flex items-center justify-between">
-                        <p className="text-zinc-400 text-xs uppercase tracking-wider font-bold">Fee Structure</p>
-                        <p className="text-zinc-300 text-sm">
-                          Platform: <span className="text-white font-bold">{selectedDeal.platformFeeBps / 100}%</span> |
-                          Connector: <span className="text-white font-bold">{selectedDeal.connectorShareBps / 100}%</span> of fee
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Milestones */}
-                    <h4 className="text-white font-bold mb-3 flex items-center gap-2">
-                      <Activity size={16} className="text-emerald-400" />
-                      Milestones ({selectedDeal.milestones.filter(m => m.status === 'Released').length}/{selectedDeal.milestoneCount})
-                    </h4>
-                    <div className="space-y-3">
-                      {selectedDeal.milestones.map((m, i) => (
-                        <div key={i} className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800 flex items-center justify-between">
-                          <div className="flex-1">
-                            <p className="text-white font-medium">
-                              Milestone {i + 1} — {formatAmount(m.amount)} vUSDC
-                            </p>
-                            <p className={`text-xs font-bold uppercase ${milestoneStatusColor(m.status)}`}>
-                              {m.status}
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            {m.status === 'Pending' && selectedDeal.client === wallet.address && (
-                              <button
-                                onClick={() => handleDeposit(selectedDeal.dealId, i)}
-                                disabled={escrow.isProcessing}
-                                className="px-4 py-2 bg-emerald-500 text-[#02040a] rounded-lg text-xs font-bold hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all disabled:opacity-50"
-                              >
-                                Fund
-                              </button>
-                            )}
-                            {m.status === 'Funded' && selectedDeal.client === wallet.address && (
-                              <>
-                                <button
-                                  onClick={() => handleRelease(selectedDeal, i)}
-                                  disabled={escrow.isProcessing}
-                                  className="px-4 py-2 bg-emerald-500 text-[#02040a] rounded-lg text-xs font-bold hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all disabled:opacity-50"
-                                >
-                                  Release
-                                </button>
-                                <button
-                                  onClick={() => handleDispute(selectedDeal.dealId, i)}
-                                  disabled={escrow.isProcessing}
-                                  className="px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold hover:bg-red-500/20 disabled:opacity-50"
-                                >
-                                  Dispute
-                                </button>
-                              </>
-                            )}
-                            {m.status === 'Funded' && selectedDeal.provider === wallet.address && (
-                              <button
-                                onClick={() => handleDispute(selectedDeal.dealId, i)}
-                                disabled={escrow.isProcessing}
-                                className="px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold hover:bg-red-500/20 disabled:opacity-50"
-                              >
-                                Dispute
-                              </button>
-                            )}
-                            {m.status === 'Released' && (
-                              <span className="text-emerald-400 text-xs font-bold flex items-center gap-1">
-                                <CheckCircle size={14} /> Complete
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                ) : (
-                  <Card className="p-12 text-center">
-                    <LayoutDashboard className="w-16 h-16 text-zinc-800 mx-auto mb-4" />
-                    <p className="text-zinc-500 text-lg mb-2">Select a contract</p>
-                    <p className="text-zinc-600 text-sm">Click a deal to view milestone details and actions</p>
-                  </Card>
-                )}
-              </div>
-            </div>
+            <DealDashboard
+              getDeal={escrow.getDeal}
+              getDealCount={escrow.getDealCount}
+              onDeposit={handleDeposit}
+              onRelease={handleRelease}
+              onDispute={handleDispute}
+              walletAddress={wallet.address}
+              solBalance={wallet.solBalance}
+              initialDealId={lastCreatedDealId}
+              onNavigateToCreate={() => setActiveTab('create')}
+            />
           ) : activeTab === 'oracle' ? (
-            /* --- ORACLE TAB --- */
-            <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
-              {/* Reputation Lookup */}
-              <Card className="p-6 lg:p-8">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                    <Award size={20} className="text-emerald-400" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-display text-white">On-Chain Reputation Oracle</h2>
-                    <p className="text-xs text-zinc-500">Immutable trust scores from completed escrow milestones</p>
-                  </div>
-                </div>
-
-                <p className="text-zinc-400 text-sm mb-6 border-l-2 border-emerald-500/30 pl-4">
-                  Reputation is generated by the protocol — it increments only when <strong className="text-white">all milestones</strong> in
-                  a deal are released. No human can modify it. The on-chain counter is the single source of truth.
-                </p>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={repAddress}
-                    onChange={e => setRepAddress(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleRepLookup()}
-                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                    placeholder="Provider address..."
-                  />
-                  <button
-                    type="button"
-                    onClick={handleRepLookup}
-                    className="px-6 py-3 bg-emerald-500 text-[#02040a] rounded-xl font-bold hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all"
-                  >
-                    Lookup
-                  </button>
-                </div>
-
-                {repScore !== null && (
-                  <div className="mt-6 text-center bg-zinc-900/50 rounded-xl p-8 border border-zinc-800">
-                    {/* Visual score dots */}
-                    <div className="flex justify-center gap-1.5 mb-4">
-                      {Array.from({ length: Math.max(repScore, 5) }, (_, i) => (
-                        <div
-                          key={i}
-                          className={`w-3 h-3 rounded-full transition-all duration-500 ${
-                            i < repScore
-                              ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]'
-                              : 'bg-zinc-800'
-                          }`}
-                          style={{ transitionDelay: `${i * 80}ms` }}
-                        />
-                      ))}
-                    </div>
-                    <p className="text-6xl font-display text-emerald-400 mb-2">{repScore}</p>
-                    <p className="text-zinc-400 text-sm font-medium">Completed Deals</p>
-                    <p className="text-zinc-600 text-xs mt-2 font-mono">{truncateAddress(repAddress)}</p>
-                    <div className="mt-3">
-                      {repScore >= 10 && <Tag color="emerald" className="mt-1">Elite Provider</Tag>}
-                      {repScore >= 5 && repScore < 10 && <Tag color="emerald" className="mt-1">Trusted Provider</Tag>}
-                      {repScore >= 1 && repScore < 5 && <Tag color="blue" className="mt-1">Verified Provider</Tag>}
-                      {repScore === 0 && <Tag color="zinc" className="mt-1">New Provider</Tag>}
-                    </div>
-                  </div>
-                )}
-
-                {/* Quick lookup for own address */}
-                {wallet.address && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRepAddress(wallet.address);
-                      setTimeout(handleRepLookup, 100);
-                    }}
-                    className="mt-4 text-xs text-zinc-500 hover:text-emerald-400 transition-colors"
-                  >
-                    Check my own reputation
-                  </button>
-                )}
-              </Card>
-
-              {/* Network Leaderboard */}
-              <Card className="p-6 lg:p-8">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    <Activity size={18} className="text-emerald-400" />
-                    Network Leaderboard
-                  </h3>
-                  <Tag color="blue">{dealCount} deals on-chain</Tag>
-                </div>
-
-                {deals.length > 0 ? (
-                  <div className="space-y-6">
-                    {/* Top Providers */}
-                    <div>
-                      <h4 className="text-zinc-400 text-xs uppercase tracking-wider font-bold mb-3">Top Providers (by completed deals)</h4>
-                      <div className="space-y-2">
-                        {(() => {
-                          const providerMap = new Map<string, { completed: number; total: number }>();
-                          deals.forEach(d => {
-                            const key = d.provider;
-                            const existing = providerMap.get(key) || { completed: 0, total: 0 };
-                            existing.total++;
-                            if (d.status === 'Completed') existing.completed++;
-                            providerMap.set(key, existing);
-                          });
-                          return Array.from(providerMap.entries())
-                            .sort((a, b) => b[1].completed - a[1].completed)
-                            .slice(0, 5)
-                            .map(([addr, stats], i) => (
-                              <div key={addr} className="flex items-center gap-3 bg-zinc-900/30 rounded-xl p-3 border border-zinc-800/50">
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${
-                                  i === 0 ? 'bg-emerald-500/20 text-emerald-400' :
-                                  i === 1 ? 'bg-blue-500/20 text-blue-400' :
-                                  i === 2 ? 'bg-amber-500/20 text-amber-400' :
-                                  'bg-zinc-800 text-zinc-500'
-                                }`}>
-                                  #{i + 1}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-white font-mono text-xs truncate">{truncateAddress(addr, 6)}</p>
-                                  <p className="text-zinc-500 text-xs">{stats.completed} completed / {stats.total} total</p>
-                                </div>
-                                <div className="h-2 w-24 bg-zinc-800 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-emerald-500 rounded-full transition-all"
-                                    style={{ width: `${stats.total > 0 ? (stats.completed / stats.total * 100) : 0}%` }}
-                                  />
-                                </div>
-                                {addr === wallet.address && <Tag color="emerald">You</Tag>}
-                              </div>
-                            ));
-                        })()}
-                      </div>
-                    </div>
-
-                    {/* Network Stats */}
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800 text-center">
-                        <p className="text-2xl font-display text-emerald-400">
-                          {deals.filter(d => d.status === 'Completed').length}
-                        </p>
-                        <p className="text-zinc-500 text-xs mt-1">Completed</p>
-                      </div>
-                      <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800 text-center">
-                        <p className="text-2xl font-display text-blue-400">
-                          {deals.filter(d => d.status === 'Active').length}
-                        </p>
-                        <p className="text-zinc-500 text-xs mt-1">Active</p>
-                      </div>
-                      <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800 text-center">
-                        <p className="text-2xl font-display text-amber-400">
-                          {formatAmount(deals.reduce((sum, d) => sum + Number(d.totalAmount), 0))}
-                        </p>
-                        <p className="text-zinc-500 text-xs mt-1">Total Volume</p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <Award className="w-12 h-12 text-zinc-700 mx-auto mb-3" />
-                    <p className="text-zinc-500 text-sm">No deals on-chain yet. Deploy a contract to start building reputation.</p>
-                  </div>
-                )}
-              </Card>
-            </div>
+            <ReputationBadge
+              getReputation={handleGetReputation}
+              getDealCount={escrow.getDealCount}
+              getDeal={escrow.getDeal}
+              walletAddress={wallet.address}
+            />
           ) : null}
         </main>
 
