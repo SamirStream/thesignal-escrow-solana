@@ -92,15 +92,15 @@ All milestones released → Deal completed → Provider reputation++
 | Token Standard | SPL Token-2022 (Token Extensions) |
 | Compliance | Transfer Hook + KYC Registry PDAs |
 | Frontend | React 19 + Vite + Tailwind v4 |
-| Wallet | @solana/wallet-adapter (Phantom, Solflare) |
-| Network | Solana Devnet |
+| Wallet | Privy (embedded) + @solana/wallet-adapter (Phantom, Solflare) |
+| Network | Solana Devnet / Localnet |
 
-## Deployed Program IDs
+## Program IDs
 
 | Program | Address |
 |---------|---------|
-| `signal-escrow` | `DdfRLgw8YFB8ao4YaKpPfdorEPW1EhoE1gE3FYzdhNnu` |
-| `signal-kyc-hook` | `5zyZimCxauJ4SsiAkB5PVBTevyLnznRfdoqJs1odjNSN` |
+| `signal-escrow` | `Cv9qz4mN9kXAoLgNXpiZ1kuzhgXvcZabYSbYjgLQSrWg` |
+| `signal-kyc-hook` | `FNsAAZABER8g8QUdJsfhMLck3JzNRmBHomozRiiwCM2B` |
 
 ## Quick Start
 
@@ -108,50 +108,52 @@ All milestones released → Deal completed → Provider reputation++
 - [Rust](https://rustup.rs/) (stable)
 - [Solana CLI](https://docs.solana.com/cli/install-solana-cli-tools) (2.1+)
 - [Anchor CLI](https://www.anchor-lang.com/docs/installation) (0.30.1)
-- Node.js 18+
+- Node.js 20 (use `nvm use 20`)
 
-### Build Programs
+### Local Testing (Full Stack)
 
+**Terminal 1 — Start local validator**
 ```bash
-# Install dependencies
-npm install
+solana-test-validator --reset
+```
 
-# Build both Solana programs (SBF target)
+**Terminal 2 — Build, deploy & setup**
+```bash
+# Build programs
 cargo build-sbf --manifest-path programs/signal-escrow/Cargo.toml
 cargo build-sbf --manifest-path programs/signal-kyc-hook/Cargo.toml
-```
-
-> **Note**: `anchor build` IDL generation requires a specific Rust toolchain version.
-> The IDL files in `frontend/src/idl/` are pre-generated and kept in sync manually.
-
-### Deploy (Local Validator)
-
-```bash
-# Start local validator
-solana-test-validator --reset --quiet &
 
 # Configure CLI for localhost
-solana config set --url http://localhost:8899
+solana config set --url localhost
 
-# Deploy both programs
-solana program deploy target/deploy/signal_escrow.so --program-id target/deploy/signal_escrow-keypair.json
-solana program deploy target/deploy/signal_kyc_hook.so --program-id target/deploy/signal_kyc_hook-keypair.json
+# Deploy programs
+anchor deploy
 
-# Run setup script (creates vUSDC mint, KYC records, demo data)
-npm run setup
+# Run setup (creates vUSDC mint, EscrowConfig, KYC admin, demo wallets)
+ANCHOR_PROVIDER_URL=http://localhost:8899 ANCHOR_WALLET=~/.config/solana/id.json npm run setup
 ```
 
-### Frontend
+> Copy the `vUSDC Mint` address printed by setup into `frontend/.env` as `VITE_VUSDC_MINT`
 
+**Terminal 3 — Frontend**
 ```bash
 cd frontend
 npm install
-
-# Configure environment (defaults point to localhost:8899)
-cp .env.example .env
-
-# Start dev server
 npm run dev
+```
+
+Open `http://localhost:5173`. Connect Phantom on **Localnet** (`http://localhost:8899`).
+
+### Environment Variables
+
+```env
+VITE_ESCROW_PROGRAM_ID=Cv9qz4mN9kXAoLgNXpiZ1kuzhgXvcZabYSbYjgLQSrWg
+VITE_KYC_HOOK_PROGRAM_ID=FNsAAZABER8g8QUdJsfhMLck3JzNRmBHomozRiiwCM2B
+VITE_VUSDC_MINT=<from setup script output>
+VITE_SOLANA_RPC_URL=http://localhost:8899
+VITE_SOLANA_NETWORK=localnet
+VITE_PRIVY_APP_ID=<your privy app id>
+VITE_DEMO_ADMIN_KEYPAIR=<base64 encoded admin keypair for demo KYC>
 ```
 
 ## Project Structure
