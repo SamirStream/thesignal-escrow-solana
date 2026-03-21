@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
+use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
 use crate::state::*;
 use crate::errors::SignalEscrowError;
 use crate::events::DisputeResolved;
@@ -30,20 +30,20 @@ pub struct ResolveDispute<'info> {
         seeds = [b"vault", deal_id.to_le_bytes().as_ref()],
         bump = deal.vault_bump
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
     /// Client's token account for refund portion
     #[account(mut, token::mint = deal.token_mint)]
-    pub client_token_account: Account<'info, TokenAccount>,
+    pub client_token_account: InterfaceAccount<'info, TokenAccount>,
 
     /// Provider's token account for their portion
     #[account(mut, token::mint = deal.token_mint)]
-    pub provider_token_account: Account<'info, TokenAccount>,
+    pub provider_token_account: InterfaceAccount<'info, TokenAccount>,
 
     #[account(address = deal.token_mint)]
-    pub token_mint: Account<'info, Mint>,
+    pub token_mint: InterfaceAccount<'info, Mint>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 pub fn handler(ctx: Context<ResolveDispute>, deal_id: u64, milestone_idx: u8, refund_bps: u16) -> Result<()> {
@@ -75,7 +75,7 @@ pub fn handler(ctx: Context<ResolveDispute>, deal_id: u64, milestone_idx: u8, re
 
     // Transfer refund to client
     if client_refund > 0 {
-        token::transfer_checked(
+        token_interface::transfer_checked(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 TransferChecked {
@@ -93,7 +93,7 @@ pub fn handler(ctx: Context<ResolveDispute>, deal_id: u64, milestone_idx: u8, re
 
     // Transfer remainder to provider
     if provider_amount > 0 {
-        token::transfer_checked(
+        token_interface::transfer_checked(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 TransferChecked {

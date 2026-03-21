@@ -5,6 +5,10 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
+signal_escrow = "Cv9qz4mN9kXAoLgNXpiZ1kuzhgXvcZabYSbYjgLQSrWg"
+signal_kyc_hook = "FNsAAZABER8g8QUdJsfhMLck3JzNRmBHomozRiiwCM2B"
+
+[programs.localnet]
 signal_escrow = "DdfRLgw8YFB8ao4YaKpPfdorEPW1EhoE1gE3FYzdhNnu"
 signal_kyc_hook = "5zyZimCxauJ4SsiAkB5PVBTevyLnznRfdoqJs1odjNSN"
 
@@ -12,7 +16,7 @@ signal_kyc_hook = "5zyZimCxauJ4SsiAkB5PVBTevyLnznRfdoqJs1odjNSN"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Devnet"
+cluster = "Localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

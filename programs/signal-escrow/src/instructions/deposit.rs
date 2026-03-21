@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
+use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
 use crate::state::*;
 use crate::errors::SignalEscrowError;
 use crate::events::MilestoneFunded;
@@ -23,19 +23,19 @@ pub struct Deposit<'info> {
         seeds = [b"vault", deal_id.to_le_bytes().as_ref()],
         bump = deal.vault_bump
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         token::mint = deal.token_mint,
         token::authority = client
     )]
-    pub client_token_account: Account<'info, TokenAccount>,
+    pub client_token_account: InterfaceAccount<'info, TokenAccount>,
 
     #[account(address = deal.token_mint)]
-    pub token_mint: Account<'info, Mint>,
+    pub token_mint: InterfaceAccount<'info, Mint>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 pub fn handler(ctx: Context<Deposit>, _deal_id: u64, milestone_idx: u8) -> Result<()> {
@@ -64,7 +64,7 @@ pub fn handler(ctx: Context<Deposit>, _deal_id: u64, milestone_idx: u8) -> Resul
         authority: ctx.accounts.client.to_account_info(),
     };
     let cpi_program = ctx.accounts.token_program.to_account_info();
-    token::transfer_checked(CpiContext::new(cpi_program, cpi_accounts), amount, decimals)?;
+    token_interface::transfer_checked(CpiContext::new(cpi_program, cpi_accounts), amount, decimals)?;
 
     // Update state
     deal.milestones[idx].status = MilestoneStatus::Funded;

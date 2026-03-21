@@ -24,6 +24,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           embeddedWallets: {
             ethereum: { createOnLogin: 'off' },
           },
+          solanaClusters: [
+            { name: 'devnet', rpcUrl: 'https://api.devnet.solana.com' },
+            { name: 'mainnet-beta', rpcUrl: 'https://api.mainnet-beta.solana.com' },
+          ],
         }}
       >
         <WalletProviderWrapper>

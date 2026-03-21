@@ -7,7 +7,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("5zyZimCxauJ4SsiAkB5PVBTevyLnznRfdoqJs1odjNSN");
+declare_id!("FNsAAZABER8g8QUdJsfhMLck3JzNRmBHomozRiiwCM2B");
 
 #[program]
 pub mod signal_kyc_hook {

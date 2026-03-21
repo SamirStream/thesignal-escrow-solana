@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_lang::solana_program::program_error::ProgramError;
-use anchor_spl::token::Mint;
+use anchor_spl::token_interface::Mint;
 use spl_tlv_account_resolution::{account::ExtraAccountMeta, seeds::Seed, state::ExtraAccountMetaList};
 use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 
@@ -20,7 +20,7 @@ pub struct InitializeExtraAccountMetaList<'info> {
     )]
     pub extra_account_meta_list: UncheckedAccount<'info>,
 
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     pub system_program: Program<'info, System>,
 }
 

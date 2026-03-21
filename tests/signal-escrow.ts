@@ -123,7 +123,7 @@ describe("signal-escrow", () => {
       mint,
       clientTokenAccount,
       admin,
-      10_000 * ONE_USDC,
+      100_000 * ONE_USDC,
       [],
       undefined,
       TOKEN_2022_PROGRAM_ID

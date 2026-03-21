@@ -1,4 +1,5 @@
 import { useState, useCallback, useContext, createContext, useRef, useEffect } from 'react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
 import {
   Award, Zap, ArrowRightLeft,
@@ -222,6 +223,7 @@ function LandingView({ onConnect }: { onConnect: () => void }) {
    ============================================ */
 export default function App() {
   const wallet = useUnifiedWallet();
+  const { setVisible: setWalletModalVisible } = useWalletModal();
   const escrow = useDealEscrow();
 
   const [activeTab, setActiveTab] = useState<TabId>('compliance');
@@ -595,8 +597,8 @@ export default function App() {
         isOpen={isConnectModalOpen}
         onClose={() => setIsConnectModalOpen(false)}
         onExtensionConnect={() => {
-          document.querySelector<HTMLButtonElement>('.wallet-adapter-button')?.click();
           setIsConnectModalOpen(false);
+          setWalletModalVisible(true);
         }}
         isPrivyAppConfigured={!!import.meta.env.VITE_PRIVY_APP_ID}
       />

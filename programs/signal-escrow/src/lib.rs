@@ -7,7 +7,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("DdfRLgw8YFB8ao4YaKpPfdorEPW1EhoE1gE3FYzdhNnu");
+declare_id!("Cv9qz4mN9kXAoLgNXpiZ1kuzhgXvcZabYSbYjgLQSrWg");
 
 #[program]
 pub mod signal_escrow {

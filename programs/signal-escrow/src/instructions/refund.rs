@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, TransferChecked};
+use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
 use crate::state::*;
 use crate::errors::SignalEscrowError;
 use crate::events::DealRefunded;
@@ -29,16 +29,16 @@ pub struct Refund<'info> {
         seeds = [b"vault", deal_id.to_le_bytes().as_ref()],
         bump = deal.vault_bump
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: InterfaceAccount<'info, TokenAccount>,
 
     /// Client's token account for full refund
     #[account(mut, token::mint = deal.token_mint)]
-    pub client_token_account: Account<'info, TokenAccount>,
+    pub client_token_account: InterfaceAccount<'info, TokenAccount>,
 
     #[account(address = deal.token_mint)]
-    pub token_mint: Account<'info, Mint>,
+    pub token_mint: InterfaceAccount<'info, Mint>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 pub fn handler(ctx: Context<Refund>, deal_id: u64) -> Result<()> {
@@ -67,7 +67,7 @@ pub fn handler(ctx: Context<Refund>, deal_id: u64) -> Result<()> {
         if milestone.status == MilestoneStatus::Funded
             || milestone.status == MilestoneStatus::Disputed
         {
-            token::transfer_checked(
+            token_interface::transfer_checked(
                 CpiContext::new_with_signer(
                     token_program_info.clone(),
                     TransferChecked {

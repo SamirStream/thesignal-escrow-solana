@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::TokenAccount;
+use anchor_spl::token_interface::TokenAccount;
 use crate::state::KycStatus;
 use crate::errors::KycHookError;
 
@@ -10,7 +10,7 @@ use crate::errors::KycHookError;
 pub struct TransferHook<'info> {
     /// Source token account
     #[account()]
-    pub source_token: Account<'info, TokenAccount>,
+    pub source_token: InterfaceAccount<'info, TokenAccount>,
 
     /// Token mint
     /// CHECK: Verified by Token-2022 program
@@ -18,7 +18,7 @@ pub struct TransferHook<'info> {
 
     /// Destination token account
     #[account()]
-    pub destination_token: Account<'info, TokenAccount>,
+    pub destination_token: InterfaceAccount<'info, TokenAccount>,
 
     /// Source token account owner/authority
     /// CHECK: Verified by Token-2022 program

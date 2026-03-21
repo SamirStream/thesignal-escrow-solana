@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, Token, TokenAccount};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 use crate::state::*;
 use crate::errors::SignalEscrowError;
 use crate::events::DealCreated;
@@ -29,7 +29,7 @@ pub struct CreateDeal<'info> {
         seeds = [b"deal", config.deal_count.to_le_bytes().as_ref()],
         bump
     )]
-    pub deal: Account<'info, Deal>,
+    pub deal: Box<Account<'info, Deal>>,
 
     #[account(
         init,
@@ -39,10 +39,10 @@ pub struct CreateDeal<'info> {
         seeds = [b"vault", config.deal_count.to_le_bytes().as_ref()],
         bump
     )]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    pub token_mint: Account<'info, Mint>,
-    pub token_program: Program<'info, Token>,
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 

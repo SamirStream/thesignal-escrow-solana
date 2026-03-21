@@ -168,7 +168,7 @@ export function CreateDeal({ onCreateDeal, onDealCreated }: Props) {
       setError('Invalid provider address. Must be a valid Solana public key.');
       return;
     }
-    if (!isValidSolanaAddress(connector)) {
+    if (connector.trim() && !isValidSolanaAddress(connector.trim())) {
       setError('Invalid connector address. Must be a valid Solana public key.');
       return;
     }
@@ -198,11 +198,13 @@ export function CreateDeal({ onCreateDeal, onDealCreated }: Props) {
       );
 
       setTxStep('submitting');
+      const effectiveConnector = connector.trim() || provider.trim();
+      const effectiveConnectorShare = connector.trim() ? connectorShare * 100 : 0;
       const res = await onCreateDeal(
         provider.trim(),
-        connector.trim(),
+        effectiveConnector,
         platformFee * 100,
-        connectorShare * 100,
+        effectiveConnectorShare,
         milestoneAmounts,
       );
 
