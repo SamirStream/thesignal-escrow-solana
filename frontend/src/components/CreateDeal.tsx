@@ -530,7 +530,6 @@ export function CreateDeal({ onCreateDeal, onDealCreated }: Props) {
                     value={connector}
                     onChange={(e) => setConnector(e.target.value)}
                     placeholder="Solana address..."
-                    required
                     className={`w-full bg-[#09090b] border ${connector && !isValidSolanaAddress(connector) ? 'border-red-500/50 focus:border-red-500/50' : 'border-zinc-800 hover:border-zinc-700 focus:border-emerald-500/50'} rounded-xl px-4 py-3 text-white font-mono text-sm placeholder:text-zinc-700 outline-none transition-colors`}
                   />
                   {connector && !isValidSolanaAddress(connector) && (
