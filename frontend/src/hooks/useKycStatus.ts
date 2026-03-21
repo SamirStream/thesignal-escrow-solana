@@ -2,8 +2,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { useUnifiedAnchorWallet } from '../components/UnifiedWalletProvider';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
-import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
 import { getKycPDA, getKycAdminPDA } from '../lib/solana';
+
+function getAdminKeypair(): Keypair | null {
+  const b64 = import.meta.env.VITE_DEMO_ADMIN_KEYPAIR;
+  if (!b64) return null;
+  try {
+    return Keypair.fromSecretKey(Buffer.from(b64, 'base64'));
+  } catch {
+    return null;
+  }
+}
 
 import kycIdl from '../idl/signal_kyc_hook.json';
 
@@ -85,8 +95,10 @@ export function useKycStatus() {
     const [kycPDA] = getKycPDA(wallet.publicKey);
     const [configPDA] = getKycAdminPDA();
     const oneYearFromNow = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+    const adminKeypair = getAdminKeypair();
+    const adminPubkey = adminKeypair ? adminKeypair.publicKey : wallet.publicKey;
 
-    const txHash = await program.methods
+    const ix = program.methods
       .registerKyc(
         wallet.publicKey,
         kycLevel,
@@ -94,12 +106,15 @@ export function useKycStatus() {
         new BN(oneYearFromNow)
       )
       .accounts({
-        admin: wallet.publicKey,
+        admin: adminPubkey,
         config: configPDA,
         kycStatus: kycPDA,
         systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+      });
+
+    const txHash = adminKeypair
+      ? await ix.signers([adminKeypair]).rpc()
+      : await ix.rpc();
 
     await fetchKycStatus();
     return txHash;
