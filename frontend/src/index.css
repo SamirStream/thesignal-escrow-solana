@@ -84,10 +84,6 @@
 
   /* Stagger fade-in for list items */
   --animate-stagger-in: staggerFadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  @keyframes staggerFadeInUp {
-    from { opacity: 0; transform: translateY(16px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
 
   /* Skeleton shimmer */
   --animate-skeleton: skeletonPulse 1.8s ease-in-out infinite;
@@ -108,6 +104,11 @@
     4%, 7%   { transform: translate(1px, 0); text-shadow: -1px 0 0 rgba(16, 185, 129, 0.4), 1px 0 0 rgba(0, 255, 255, 0.4); }
     8%, 98%  { transform: translate(0); text-shadow: 1px 0 0 rgba(16, 185, 129, 0.2), -1px 0 0 rgba(0, 255, 255, 0.2); }
   }
+}
+
+@keyframes staggerFadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @layer base {

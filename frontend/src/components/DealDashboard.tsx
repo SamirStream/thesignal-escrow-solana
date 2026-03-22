@@ -493,7 +493,7 @@ export function DealDashboard({
                           ? 'bg-emerald-500/10 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
                           : 'bg-zinc-900/30 border-zinc-800/50 hover:bg-zinc-800/50 hover:border-zinc-700'
                       }`}
-                      style={{ animation: 'staggerFadeInUp 0.5s cubic-bezier(0.16,1,0.3,1) forwards', animationDelay: `${dealIdx * 60}ms`, opacity: 0 }}
+                      style={{ animationDelay: `${dealIdx * 60}ms` }}
                     >
                       <div className="font-mono text-sm font-medium text-zinc-200 group-hover:text-emerald-400 transition-colors truncate mb-2">
                         {getDealMetadata(deal.id)?.title || `Deal #${deal.id}`}
