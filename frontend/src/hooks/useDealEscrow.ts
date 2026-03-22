@@ -269,9 +269,18 @@ export function useDealEscrow() {
       const connectorPubkey = new PublicKey(connectorAddr);
       const protocolPubkey = new PublicKey(protocolWalletAddr);
 
-      const providerAta = getAssociatedTokenAddressSync(VUSDC_MINT, providerPubkey, false, TOKEN_2022_PROGRAM_ID);
-      const connectorAta = getAssociatedTokenAddressSync(VUSDC_MINT, connectorPubkey, false, TOKEN_2022_PROGRAM_ID);
-      const protocolAta = getAssociatedTokenAddressSync(VUSDC_MINT, protocolPubkey, false, TOKEN_2022_PROGRAM_ID);
+      // Create ATAs for all recipients if they don't exist (admin pays)
+      const adminKeypair = getAdminKeypair();
+      if (!adminKeypair) throw new Error('Admin keypair not configured');
+
+      const [providerAtaInfo, connectorAtaInfo, protocolAtaInfo] = await Promise.all([
+        getOrCreateAssociatedTokenAccount(connection, adminKeypair, VUSDC_MINT, providerPubkey, false, undefined, undefined, TOKEN_2022_PROGRAM_ID),
+        getOrCreateAssociatedTokenAccount(connection, adminKeypair, VUSDC_MINT, connectorPubkey, false, undefined, undefined, TOKEN_2022_PROGRAM_ID),
+        getOrCreateAssociatedTokenAccount(connection, adminKeypair, VUSDC_MINT, protocolPubkey, false, undefined, undefined, TOKEN_2022_PROGRAM_ID),
+      ]);
+      const providerAta = providerAtaInfo.address;
+      const connectorAta = connectorAtaInfo.address;
+      const protocolAta = protocolAtaInfo.address;
 
       // Vault's token authority = deal PDA (sender for all 3 release transfers)
       // KYC hook checks token account owners, not the token account addresses
@@ -318,7 +327,7 @@ export function useDealEscrow() {
     } finally {
       setIsProcessing(false);
     }
-  }, [getProgram, wallet, ensureKycRegistered]);
+  }, [getProgram, wallet, connection, ensureKycRegistered]);
 
   const dispute = useCallback(async (
     dealId: number,
