@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
+use anchor_lang::solana_program::instruction::AccountMeta;
+use anchor_lang::solana_program::program::invoke_signed;
+use anchor_spl::token_2022::spl_token_2022;
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 use crate::state::*;
 use crate::errors::SignalEscrowError;
 use crate::events::DisputeResolved;
@@ -23,30 +26,30 @@ pub struct ResolveDispute<'info> {
         bump = deal.bump,
         constraint = deal.status == DealStatus::Disputed @ SignalEscrowError::DealNotDisputed
     )]
-    pub deal: Account<'info, Deal>,
+    pub deal: Box<Account<'info, Deal>>,
 
     #[account(
         mut,
         seeds = [b"vault", deal_id.to_le_bytes().as_ref()],
         bump = deal.vault_bump
     )]
-    pub vault: InterfaceAccount<'info, TokenAccount>,
+    pub vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// Client's token account for refund portion
     #[account(mut, token::mint = deal.token_mint)]
-    pub client_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub client_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// Provider's token account for their portion
     #[account(mut, token::mint = deal.token_mint)]
-    pub provider_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub provider_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(address = deal.token_mint)]
-    pub token_mint: InterfaceAccount<'info, Mint>,
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-pub fn handler(ctx: Context<ResolveDispute>, deal_id: u64, milestone_idx: u8, refund_bps: u16) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, ResolveDispute<'info>>, deal_id: u64, milestone_idx: u8, refund_bps: u16) -> Result<()> {
     require!(refund_bps <= 10000, SignalEscrowError::InvalidRefundBps);
 
     let deal = &mut ctx.accounts.deal;
@@ -73,40 +76,49 @@ pub fn handler(ctx: Context<ResolveDispute>, deal_id: u64, milestone_idx: u8, re
     let deal_id_bytes = deal_id.to_le_bytes();
     let signer_seeds: &[&[&[u8]]] = &[&[b"deal", deal_id_bytes.as_ref(), &[deal.bump]]];
 
+    let tp_key = ctx.accounts.token_program.key();
+    let vault_key = ctx.accounts.vault.key();
+    let mint_key = ctx.accounts.token_mint.key();
+    let deal_key = deal.key();
+
     // Transfer refund to client
     if client_refund > 0 {
-        token_interface::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                TransferChecked {
-                    from: ctx.accounts.vault.to_account_info(),
-                    mint: ctx.accounts.token_mint.to_account_info(),
-                    to: ctx.accounts.client_token_account.to_account_info(),
-                    authority: deal.to_account_info(),
-                },
-                signer_seeds,
-            ),
-            client_refund,
-            decimals,
+        let to_key = ctx.accounts.client_token_account.key();
+        let mut ix = spl_token_2022::instruction::transfer_checked(
+            &tp_key, &vault_key, &mint_key, &to_key, &deal_key, &[], client_refund, decimals,
         )?;
+        for account in ctx.remaining_accounts.iter() {
+            if account.is_writable { ix.accounts.push(AccountMeta::new(*account.key, account.is_signer)); }
+            else { ix.accounts.push(AccountMeta::new_readonly(*account.key, account.is_signer)); }
+        }
+        let mut ai = vec![
+            ctx.accounts.vault.to_account_info(),
+            ctx.accounts.token_mint.to_account_info(),
+            ctx.accounts.client_token_account.to_account_info(),
+            deal.to_account_info(),
+        ];
+        ai.extend_from_slice(ctx.remaining_accounts);
+        invoke_signed(&ix, &ai, signer_seeds)?;
     }
 
     // Transfer remainder to provider
     if provider_amount > 0 {
-        token_interface::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                TransferChecked {
-                    from: ctx.accounts.vault.to_account_info(),
-                    mint: ctx.accounts.token_mint.to_account_info(),
-                    to: ctx.accounts.provider_token_account.to_account_info(),
-                    authority: deal.to_account_info(),
-                },
-                signer_seeds,
-            ),
-            provider_amount,
-            decimals,
+        let to_key = ctx.accounts.provider_token_account.key();
+        let mut ix = spl_token_2022::instruction::transfer_checked(
+            &tp_key, &vault_key, &mint_key, &to_key, &deal_key, &[], provider_amount, decimals,
         )?;
+        for account in ctx.remaining_accounts.iter() {
+            if account.is_writable { ix.accounts.push(AccountMeta::new(*account.key, account.is_signer)); }
+            else { ix.accounts.push(AccountMeta::new_readonly(*account.key, account.is_signer)); }
+        }
+        let mut ai = vec![
+            ctx.accounts.vault.to_account_info(),
+            ctx.accounts.token_mint.to_account_info(),
+            ctx.accounts.provider_token_account.to_account_info(),
+            deal.to_account_info(),
+        ];
+        ai.extend_from_slice(ctx.remaining_accounts);
+        invoke_signed(&ix, &ai, signer_seeds)?;
     }
 
     deal.milestones[idx].status = MilestoneStatus::Refunded;

@@ -510,6 +510,7 @@ export default function App() {
               onDeposit={handleDeposit}
               onRelease={handleRelease}
               onDispute={handleDispute}
+              onResolveDispute={escrow.resolveDispute}
               walletAddress={wallet.address}
               solBalance={wallet.solBalance}
               initialDealId={lastCreatedDealId}

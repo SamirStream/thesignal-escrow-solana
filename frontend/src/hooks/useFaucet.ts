@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { useUnifiedAnchorWallet } from '../components/UnifiedWalletProvider';
-import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { AnchorProvider, Program, BN } from '@coral-xyz/anchor';
 import {
   TOKEN_2022_PROGRAM_ID,
@@ -30,6 +30,13 @@ export function useFaucet() {
     setIsClaiming(true);
     try {
       const AMOUNT = 10_000 * 1_000_000; // 10,000 vUSDC
+
+      // 0. Airdrop SOL if wallet has less than 0.1 SOL (needed for tx fees)
+      const balance = await connection.getBalance(wallet.publicKey);
+      if (balance < 0.1 * LAMPORTS_PER_SOL) {
+        const sig = await connection.requestAirdrop(wallet.publicKey, LAMPORTS_PER_SOL);
+        await connection.confirmTransaction(sig, 'confirmed');
+      }
 
       // 1. Create ATA for user if needed, then mint vUSDC
       const ata = await getOrCreateAssociatedTokenAccount(

@@ -627,7 +627,8 @@ export function CreateDeal({ onCreateDeal, onDealCreated }: Props) {
                       <input
                         type="number"
                         value={platformFee}
-                        onChange={(e) => setPlatformFee(Number(e.target.value))}
+                        onChange={(e) => setPlatformFee(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                        onBlur={(e) => setPlatformFee(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
                         min={1}
                         max={100}
                         required
@@ -642,7 +643,8 @@ export function CreateDeal({ onCreateDeal, onDealCreated }: Props) {
                       <input
                         type="number"
                         value={connectorShare}
-                        onChange={(e) => setConnectorShare(Number(e.target.value))}
+                        onChange={(e) => setConnectorShare(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                        onBlur={(e) => setConnectorShare(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
                         min={1}
                         max={100}
                         required

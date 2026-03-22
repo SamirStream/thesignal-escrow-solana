@@ -3,7 +3,7 @@ import { useConnection } from '@solana/wallet-adapter-react';
 import { useUnifiedAnchorWallet } from '../components/UnifiedWalletProvider';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
-import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
 import {
   VUSDC_MINT,
   KYC_HOOK_PROGRAM_ID,
@@ -343,6 +343,82 @@ export function useDealEscrow() {
     }
   }, [getProgram, wallet]);
 
+  // Admin resolves a dispute: refundBps=0 → 100% to provider, refundBps=10000 → 100% refund to client
+  const resolveDispute = useCallback(async (
+    dealId: number,
+    milestoneIdx: number,
+    clientAddr: string,
+    providerAddr: string,
+    refundBps: number, // 0 = full release to provider, 10000 = full refund to client
+  ): Promise<{ txHash: string }> => {
+    setIsProcessing(true);
+    try {
+      const adminKeypair = getAdminKeypair();
+      if (!adminKeypair) throw new Error('Admin keypair not configured');
+
+      const [dealPDA] = getDealPDA(dealId);
+      const [vaultPDA] = getVaultPDA(dealId);
+      const [configPDA] = getConfigPDA();
+
+      const clientPubkey = new PublicKey(clientAddr);
+      const providerPubkey = new PublicKey(providerAddr);
+
+      // Ensure ATAs exist (admin pays)
+      const clientAta = await getOrCreateAssociatedTokenAccount(
+        connection, adminKeypair, VUSDC_MINT, clientPubkey, false, undefined, undefined, TOKEN_2022_PROGRAM_ID,
+      );
+      const providerAta = await getOrCreateAssociatedTokenAccount(
+        connection, adminKeypair, VUSDC_MINT, providerPubkey, false, undefined, undefined, TOKEN_2022_PROGRAM_ID,
+      );
+
+      // Ensure KYC for both parties
+      await ensureKycRegistered(clientPubkey);
+      await ensureKycRegistered(providerPubkey);
+
+      const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
+        [Buffer.from('extra-account-metas'), VUSDC_MINT.toBuffer()],
+        KYC_HOOK_PROGRAM_ID
+      );
+      const [dealKyc] = getKycPDA(dealPDA);
+      const [clientKyc] = getKycPDA(clientPubkey);
+      const [providerKyc] = getKycPDA(providerPubkey);
+
+      // Admin wallet wrapper so admin pays fees
+      const adminWallet = {
+        publicKey: adminKeypair.publicKey,
+        signTransaction: async (tx: any) => { tx.partialSign(adminKeypair); return tx; },
+        signAllTransactions: async (txs: any[]) => { txs.forEach(tx => tx.partialSign(adminKeypair)); return txs; },
+      };
+      const adminProvider = new AnchorProvider(connection, adminWallet as any, { commitment: 'confirmed' });
+      const program = new Program(idl as any, adminProvider);
+
+      const txHash = await program.methods
+        .resolveDispute(new BN(dealId), milestoneIdx, refundBps)
+        .accounts({
+          admin: adminKeypair.publicKey,
+          config: configPDA,
+          deal: dealPDA,
+          vault: vaultPDA,
+          clientTokenAccount: clientAta.address,
+          providerTokenAccount: providerAta.address,
+          tokenMint: VUSDC_MINT,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .remainingAccounts([
+          { pubkey: dealKyc, isWritable: false, isSigner: false },
+          { pubkey: clientKyc, isWritable: false, isSigner: false },
+          { pubkey: providerKyc, isWritable: false, isSigner: false },
+          { pubkey: KYC_HOOK_PROGRAM_ID, isWritable: false, isSigner: false },
+          { pubkey: extraAccountMetaList, isWritable: false, isSigner: false },
+        ])
+        .rpc();
+
+      return { txHash };
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [connection, wallet, ensureKycRegistered]);
+
   return {
     isProcessing,
     getDealCount,
@@ -352,5 +428,6 @@ export function useDealEscrow() {
     deposit,
     releaseMilestone,
     dispute,
+    resolveDispute,
   };
 }

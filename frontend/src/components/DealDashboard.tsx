@@ -79,6 +79,7 @@ interface Props {
   onDeposit: (dealId: number, milestoneIdx: number) => Promise<{ txHash: string }>;
   onRelease: (dealId: number, milestoneIdx: number, provider: string, connector: string, protocolWallet: string) => Promise<{ txHash: string }>;
   onDispute: (dealId: number, milestoneIdx: number) => Promise<{ txHash: string }>;
+  onResolveDispute: (dealId: number, milestoneIdx: number, client: string, provider: string, refundBps: number) => Promise<{ txHash: string }>;
   walletAddress: string;
   solBalance: string;
   initialDealId?: number | null;
@@ -90,7 +91,7 @@ interface Props {
    ============================================ */
 
 export function DealDashboard({
-  getDeal, getDealCount, onDeposit, onRelease, onDispute,
+  getDeal, getDealCount, onDeposit, onRelease, onDispute, onResolveDispute,
   walletAddress, solBalance, initialDealId, onNavigateToCreate,
 }: Props) {
   const toast = useToast();
@@ -99,7 +100,7 @@ export function DealDashboard({
   const [listLoading, setListLoading] = useState(true);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [myDealsOnly, setMyDealsOnly] = useState(true);
+  const [myDealsOnly, setMyDealsOnly] = useState(false);
 
   const [selectedDealId, setSelectedDealId] = useState<number | null>(initialDealId ?? null);
   const [mobileShowDetail, setMobileShowDetail] = useState(initialDealId !== null && initialDealId !== undefined);
@@ -149,8 +150,8 @@ export function DealDashboard({
   }, [getDeal, getDealCount]);
 
   useEffect(() => {
-    fetchAllDeals();
-  }, []);
+    if (walletAddress) fetchAllDeals();
+  }, [walletAddress]);
 
   const fetchRef = useRef(fetchAllDeals);
   fetchRef.current = fetchAllDeals;
@@ -734,13 +735,54 @@ export function DealDashboard({
                                 <div className="w-full space-y-2">
                                   <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px]">
                                     <span className="shrink-0">&#9878;</span>
-                                    <span>Under review — The Signal team handles resolution</span>
+                                    <span>Under review — Admin resolves on-chain</span>
                                   </div>
-                                  {isClient && (
-                                    <Button variant="secondary" onClick={() => setConfirmAction({ type: 'release', milestoneIdx: i })} disabled={!!actionLoading} className="text-xs py-1.5 px-3 w-full">
-                                      {actionLoading === `release-${i}` ? 'Signing...' : 'Accept & Release to Provider'}
-                                    </Button>
-                                  )}
+                                  <Button
+                                    variant="secondary"
+                                    onClick={async () => {
+                                      if (!selectedDeal || selectedDealId === null) return;
+                                      setActionLoading(`resolve-${i}`);
+                                      setError('');
+                                      try {
+                                        const res = await onResolveDispute(selectedDealId, i, selectedDeal.client, selectedDeal.provider, 0);
+                                        setLastTxHash(res.txHash);
+                                        toast('Dispute resolved — funds released to provider', 'success');
+                                        await fetchAllDeals();
+                                      } catch (err: any) {
+                                        setError(err.message || 'Resolve failed');
+                                        toast('Resolve failed: ' + (err.message || ''), 'error');
+                                      } finally {
+                                        setActionLoading(null);
+                                      }
+                                    }}
+                                    disabled={!!actionLoading}
+                                    className="text-xs py-1.5 px-3 w-full"
+                                  >
+                                    {actionLoading === `resolve-${i}` ? 'Signing...' : 'Accept & Release to Provider'}
+                                  </Button>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={async () => {
+                                      if (!selectedDeal || selectedDealId === null) return;
+                                      setActionLoading(`refund-${i}`);
+                                      setError('');
+                                      try {
+                                        const res = await onResolveDispute(selectedDealId, i, selectedDeal.client, selectedDeal.provider, 10000);
+                                        setLastTxHash(res.txHash);
+                                        toast('Dispute resolved — funds refunded to client', 'success');
+                                        await fetchAllDeals();
+                                      } catch (err: any) {
+                                        setError(err.message || 'Refund failed');
+                                        toast('Refund failed: ' + (err.message || ''), 'error');
+                                      } finally {
+                                        setActionLoading(null);
+                                      }
+                                    }}
+                                    disabled={!!actionLoading}
+                                    className="text-xs py-1.5 px-3 w-full text-red-400 border-red-500/20"
+                                  >
+                                    {actionLoading === `refund-${i}` ? 'Signing...' : 'Refund to Client'}
+                                  </Button>
                                 </div>
                               )}
                             </div>

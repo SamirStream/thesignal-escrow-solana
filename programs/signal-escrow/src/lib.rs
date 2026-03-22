@@ -48,8 +48,8 @@ pub mod signal_escrow {
     }
 
     /// Admin resolves a dispute, splitting funds between client and provider
-    pub fn resolve_dispute(
-        ctx: Context<ResolveDispute>,
+    pub fn resolve_dispute<'info>(
+        ctx: Context<'_, '_, '_, 'info, ResolveDispute<'info>>,
         deal_id: u64,
         milestone_idx: u8,
         refund_bps: u16,
