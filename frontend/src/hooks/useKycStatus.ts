@@ -84,41 +84,44 @@ export function useKycStatus() {
     }
   }, [wallet, getProgram]);
 
-  // Demo: self-verify KYC (admin instruction, for hackathon demo only)
+  // Demo: self-verify KYC (admin pays fees, for hackathon demo only)
   const selfVerifyKyc = useCallback(async (
     kycLevel: number = 2,
     countryCode: string = 'US',
   ): Promise<string> => {
-    const program = getProgram();
     if (!wallet?.publicKey) throw new Error('Wallet not connected');
 
     const [kycPDA] = getKycPDA(wallet.publicKey);
     const [configPDA] = getKycAdminPDA();
     const oneYearFromNow = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
     const adminKeypair = getAdminKeypair();
-    const adminPubkey = adminKeypair ? adminKeypair.publicKey : wallet.publicKey;
 
-    const ix = program.methods
-      .registerKyc(
-        wallet.publicKey,
-        kycLevel,
-        Buffer.from(countryCode.slice(0, 2)),
-        new BN(oneYearFromNow)
-      )
-      .accounts({
-        admin: adminPubkey,
-        config: configPDA,
-        kycStatus: kycPDA,
-        systemProgram: SystemProgram.programId,
-      });
-
-    const txHash = adminKeypair
-      ? await ix.signers([adminKeypair]).rpc()
-      : await ix.rpc();
+    let txHash: string;
+    if (adminKeypair) {
+      // Admin pays fees — new wallets with 0 SOL can still get verified
+      const adminWallet = {
+        publicKey: adminKeypair.publicKey,
+        signTransaction: async (tx: any) => { tx.partialSign(adminKeypair); return tx; },
+        signAllTransactions: async (txs: any[]) => { txs.forEach(tx => tx.partialSign(adminKeypair)); return txs; },
+      };
+      const adminProvider = new AnchorProvider(connection, adminWallet as any, { commitment: 'confirmed' });
+      const adminProgram = new Program(kycIdl as any, adminProvider);
+      txHash = await adminProgram.methods
+        .registerKyc(wallet.publicKey, kycLevel, Buffer.from(countryCode.slice(0, 2)), new BN(oneYearFromNow))
+        .accounts({ admin: adminKeypair.publicKey, config: configPDA, kycStatus: kycPDA, systemProgram: SystemProgram.programId })
+        .rpc();
+    } else {
+      // Fallback: user pays fees (requires SOL)
+      const program = getProgram();
+      txHash = await program.methods
+        .registerKyc(wallet.publicKey, kycLevel, Buffer.from(countryCode.slice(0, 2)), new BN(oneYearFromNow))
+        .accounts({ admin: wallet.publicKey, config: configPDA, kycStatus: kycPDA, systemProgram: SystemProgram.programId })
+        .rpc();
+    }
 
     await fetchKycStatus();
     return txHash;
-  }, [wallet, getProgram, fetchKycStatus]);
+  }, [wallet, connection, getProgram, fetchKycStatus]);
 
   // Auto-fetch on wallet connect
   useEffect(() => {

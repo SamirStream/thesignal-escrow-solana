@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Shield, ShieldCheck, ShieldX, Clock, Globe, AlertTriangle } from 'lucide-react';
+import { Shield, ShieldCheck, ShieldX, Clock, Globe, AlertTriangle, Coins } from 'lucide-react';
 import { Card, Button, Tag } from './ui/Components';
 import { useKycStatus, getKycLevelLabel } from '../hooks/useKycStatus';
+import { useFaucet } from '../hooks/useFaucet';
 import { truncateAddress, getExplorerTxLink } from '../lib/solana';
 
 interface KycVerificationProps {
@@ -11,6 +12,7 @@ interface KycVerificationProps {
 
 export function KycVerification({ address, onToast }: KycVerificationProps) {
   const { kycData, isLoading, selfVerifyKyc } = useKycStatus();
+  const { isClaiming, claimFaucet } = useFaucet();
   const [selectedLevel, setSelectedLevel] = useState(2);
   const [selectedCountry, setSelectedCountry] = useState('US');
   const [isVerifying, setIsVerifying] = useState(false);
@@ -192,6 +194,36 @@ export function KycVerification({ address, onToast }: KycVerificationProps) {
             </p>
           </div>
         )}
+      </Card>
+
+      {/* Faucet */}
+      <Card className="p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Coins className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-lg font-bold text-white">Test Token Faucet</h3>
+          <Tag color="amber">Demo Only</Tag>
+        </div>
+        <p className="text-zinc-400 text-sm mb-5">
+          Get 10,000 vUSDC (virtual USDC) to test the escrow flow. Also auto-registers your wallet for KYC.
+        </p>
+        <Button
+          onClick={async () => {
+            try {
+              const { txHash, amount } = await claimFaucet();
+              onToast(`Claimed ${amount.toLocaleString()} vUSDC! TX: ${txHash.slice(0, 8)}...`, 'success');
+            } catch (err: any) {
+              onToast(`Faucet error: ${err.message}`, 'error');
+            }
+          }}
+          disabled={isClaiming || !address}
+          icon={Coins}
+          className="w-full"
+        >
+          {isClaiming ? 'Claiming...' : 'Get 10,000 vUSDC'}
+        </Button>
+        <p className="text-zinc-600 text-xs text-center mt-3">
+          vUSDC is a devnet-only token. Real deployments use regulated stablecoins (USDC, EURC).
+        </p>
       </Card>
 
       {/* How it works */}
