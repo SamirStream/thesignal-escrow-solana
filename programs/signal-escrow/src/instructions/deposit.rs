@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
+use anchor_lang::solana_program::instruction::AccountMeta;
+use anchor_lang::solana_program::program::invoke_signed;
+use anchor_spl::token_2022::spl_token_2022;
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 use crate::state::*;
 use crate::errors::SignalEscrowError;
 use crate::events::MilestoneFunded;
@@ -38,7 +41,7 @@ pub struct Deposit<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-pub fn handler(ctx: Context<Deposit>, _deal_id: u64, milestone_idx: u8) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, Deposit<'info>>, _deal_id: u64, milestone_idx: u8) -> Result<()> {
     let deal = &mut ctx.accounts.deal;
 
     require!(
@@ -56,15 +59,32 @@ pub fn handler(ctx: Context<Deposit>, _deal_id: u64, milestone_idx: u8) -> Resul
     let amount = deal.milestones[idx].amount;
     let decimals = ctx.accounts.token_mint.decimals;
 
-    // CPI: transfer tokens from client to vault
-    let cpi_accounts = TransferChecked {
-        from: ctx.accounts.client_token_account.to_account_info(),
-        mint: ctx.accounts.token_mint.to_account_info(),
-        to: ctx.accounts.vault.to_account_info(),
-        authority: ctx.accounts.client.to_account_info(),
-    };
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    token_interface::transfer_checked(CpiContext::new(cpi_program, cpi_accounts), amount, decimals)?;
+    // CPI: transfer tokens from client to vault (with transfer hook accounts)
+    let mut ix = spl_token_2022::instruction::transfer_checked(
+        &ctx.accounts.token_program.key(),
+        &ctx.accounts.client_token_account.key(),
+        &ctx.accounts.token_mint.key(),
+        &ctx.accounts.vault.key(),
+        ctx.accounts.client.key,
+        &[],
+        amount,
+        decimals,
+    )?;
+    for account in ctx.remaining_accounts.iter() {
+        if account.is_writable {
+            ix.accounts.push(AccountMeta::new(*account.key, account.is_signer));
+        } else {
+            ix.accounts.push(AccountMeta::new_readonly(*account.key, account.is_signer));
+        }
+    }
+    let mut account_infos = vec![
+        ctx.accounts.client_token_account.to_account_info(),
+        ctx.accounts.token_mint.to_account_info(),
+        ctx.accounts.vault.to_account_info(),
+        ctx.accounts.client.to_account_info(),
+    ];
+    account_infos.extend_from_slice(ctx.remaining_accounts);
+    invoke_signed(&ix, &account_infos, &[])?;
 
     // Update state
     deal.milestones[idx].status = MilestoneStatus::Funded;

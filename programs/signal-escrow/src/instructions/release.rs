@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
+use anchor_lang::solana_program::instruction::AccountMeta;
+use anchor_lang::solana_program::program::invoke_signed;
+use anchor_spl::token_2022::spl_token_2022;
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 use crate::state::*;
 use crate::errors::SignalEscrowError;
 use crate::events::{MilestoneReleased, DealCompleted};
@@ -56,7 +59,7 @@ pub struct ReleaseMilestone<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<ReleaseMilestone>, deal_id: u64, milestone_idx: u8) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, ReleaseMilestone<'info>>, deal_id: u64, milestone_idx: u8) -> Result<()> {
     let deal = &mut ctx.accounts.deal;
     let idx = milestone_idx as usize;
 
@@ -92,58 +95,54 @@ pub fn handler(ctx: Context<ReleaseMilestone>, deal_id: u64, milestone_idx: u8) 
     let deal_id_bytes = deal_id.to_le_bytes();
     let signer_seeds: &[&[&[u8]]] = &[&[b"deal", deal_id_bytes.as_ref(), &[deal.bump]]];
 
+    let tp_key = ctx.accounts.token_program.key();
+    let vault_key = ctx.accounts.vault.key();
+    let mint_key = ctx.accounts.token_mint.key();
+    let deal_key = deal.key();
+
     // CPI 1: Transfer to provider
     if provider_cut > 0 {
-        token_interface::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                TransferChecked {
-                    from: ctx.accounts.vault.to_account_info(),
-                    mint: ctx.accounts.token_mint.to_account_info(),
-                    to: ctx.accounts.provider_token_account.to_account_info(),
-                    authority: deal.to_account_info(),
-                },
-                signer_seeds,
-            ),
-            provider_cut,
-            decimals,
+        let to_key = ctx.accounts.provider_token_account.key();
+        let mut ix = spl_token_2022::instruction::transfer_checked(
+            &tp_key, &vault_key, &mint_key, &to_key, &deal_key, &[], provider_cut, decimals,
         )?;
+        for account in ctx.remaining_accounts.iter() {
+            if account.is_writable { ix.accounts.push(AccountMeta::new(*account.key, account.is_signer)); }
+            else { ix.accounts.push(AccountMeta::new_readonly(*account.key, account.is_signer)); }
+        }
+        let mut ai = vec![ctx.accounts.vault.to_account_info(), ctx.accounts.token_mint.to_account_info(), ctx.accounts.provider_token_account.to_account_info(), deal.to_account_info()];
+        ai.extend_from_slice(ctx.remaining_accounts);
+        invoke_signed(&ix, &ai, signer_seeds)?;
     }
 
     // CPI 2: Transfer to connector (BD commission)
     if connector_cut > 0 {
-        token_interface::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                TransferChecked {
-                    from: ctx.accounts.vault.to_account_info(),
-                    mint: ctx.accounts.token_mint.to_account_info(),
-                    to: ctx.accounts.connector_token_account.to_account_info(),
-                    authority: deal.to_account_info(),
-                },
-                signer_seeds,
-            ),
-            connector_cut,
-            decimals,
+        let to_key = ctx.accounts.connector_token_account.key();
+        let mut ix = spl_token_2022::instruction::transfer_checked(
+            &tp_key, &vault_key, &mint_key, &to_key, &deal_key, &[], connector_cut, decimals,
         )?;
+        for account in ctx.remaining_accounts.iter() {
+            if account.is_writable { ix.accounts.push(AccountMeta::new(*account.key, account.is_signer)); }
+            else { ix.accounts.push(AccountMeta::new_readonly(*account.key, account.is_signer)); }
+        }
+        let mut ai = vec![ctx.accounts.vault.to_account_info(), ctx.accounts.token_mint.to_account_info(), ctx.accounts.connector_token_account.to_account_info(), deal.to_account_info()];
+        ai.extend_from_slice(ctx.remaining_accounts);
+        invoke_signed(&ix, &ai, signer_seeds)?;
     }
 
     // CPI 3: Transfer to protocol wallet
     if protocol_cut > 0 {
-        token_interface::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                TransferChecked {
-                    from: ctx.accounts.vault.to_account_info(),
-                    mint: ctx.accounts.token_mint.to_account_info(),
-                    to: ctx.accounts.protocol_token_account.to_account_info(),
-                    authority: deal.to_account_info(),
-                },
-                signer_seeds,
-            ),
-            protocol_cut,
-            decimals,
+        let to_key = ctx.accounts.protocol_token_account.key();
+        let mut ix = spl_token_2022::instruction::transfer_checked(
+            &tp_key, &vault_key, &mint_key, &to_key, &deal_key, &[], protocol_cut, decimals,
         )?;
+        for account in ctx.remaining_accounts.iter() {
+            if account.is_writable { ix.accounts.push(AccountMeta::new(*account.key, account.is_signer)); }
+            else { ix.accounts.push(AccountMeta::new_readonly(*account.key, account.is_signer)); }
+        }
+        let mut ai = vec![ctx.accounts.vault.to_account_info(), ctx.accounts.token_mint.to_account_info(), ctx.accounts.protocol_token_account.to_account_info(), deal.to_account_info()];
+        ai.extend_from_slice(ctx.remaining_accounts);
+        invoke_signed(&ix, &ai, signer_seeds)?;
     }
 
     // Update milestone state

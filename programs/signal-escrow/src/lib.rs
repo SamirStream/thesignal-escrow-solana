@@ -29,13 +29,13 @@ pub mod signal_escrow {
     }
 
     /// Client deposits funds for a specific milestone
-    pub fn deposit(ctx: Context<Deposit>, deal_id: u64, milestone_idx: u8) -> Result<()> {
+    pub fn deposit<'info>(ctx: Context<'_, '_, '_, 'info, Deposit<'info>>, deal_id: u64, milestone_idx: u8) -> Result<()> {
         instructions::deposit::handler(ctx, deal_id, milestone_idx)
     }
 
     /// Client releases a funded milestone — atomic 3-way split to provider, connector, protocol
-    pub fn release_milestone(
-        ctx: Context<ReleaseMilestone>,
+    pub fn release_milestone<'info>(
+        ctx: Context<'_, '_, '_, 'info, ReleaseMilestone<'info>>,
         deal_id: u64,
         milestone_idx: u8,
     ) -> Result<()> {

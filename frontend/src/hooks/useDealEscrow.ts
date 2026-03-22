@@ -33,11 +33,13 @@ function getTransferHookAccounts(
   );
   const [senderKyc] = getKycPDA(senderOwner);
   const [receiverKyc] = getKycPDA(receiverOwner);
+  // Order: [senderKyc, receiverKyc, hookProgram, extraMetaList]
+  // Token-2022 expects extra accounts first, then the hook program + meta list
   return [
-    { pubkey: KYC_HOOK_PROGRAM_ID, isWritable: false, isSigner: false },
-    { pubkey: extraAccountMetaList, isWritable: false, isSigner: false },
     { pubkey: senderKyc, isWritable: false, isSigner: false },
     { pubkey: receiverKyc, isWritable: false, isSigner: false },
+    { pubkey: KYC_HOOK_PROGRAM_ID, isWritable: false, isSigner: false },
+    { pubkey: extraAccountMetaList, isWritable: false, isSigner: false },
   ];
 }
 
@@ -227,8 +229,8 @@ export function useDealEscrow() {
         TOKEN_2022_PROGRAM_ID
       );
 
-      // Ensure vault PDA has KYC (it receives the deposit)
-      await ensureKycRegistered(vaultPDA);
+      // Vault's token account owner is the deal PDA — that's what the KYC hook checks
+      await ensureKycRegistered(dealPDA);
 
       const txHash = await program.methods
         .deposit(new BN(dealId), milestoneIdx)
@@ -240,7 +242,7 @@ export function useDealEscrow() {
           tokenMint: VUSDC_MINT,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
-        .remainingAccounts(getTransferHookAccounts(VUSDC_MINT, wallet!.publicKey, vaultPDA))
+        .remainingAccounts(getTransferHookAccounts(VUSDC_MINT, wallet!.publicKey, dealPDA))
         .rpc();
 
       return { txHash };
@@ -271,18 +273,19 @@ export function useDealEscrow() {
       const connectorAta = getAssociatedTokenAddressSync(VUSDC_MINT, connectorPubkey, false, TOKEN_2022_PROGRAM_ID);
       const protocolAta = getAssociatedTokenAddressSync(VUSDC_MINT, protocolPubkey, false, TOKEN_2022_PROGRAM_ID);
 
-      // Ensure all receivers have KYC + vault (sender)
-      await ensureKycRegistered(vaultPDA);
+      // Vault's token authority = deal PDA (sender for all 3 release transfers)
+      // KYC hook checks token account owners, not the token account addresses
+      await ensureKycRegistered(dealPDA);
       await ensureKycRegistered(providerPubkey);
       await ensureKycRegistered(connectorPubkey);
       await ensureKycRegistered(protocolPubkey);
 
-      // Build remaining accounts for all 3 transfer hook invocations
+      // Build remaining accounts: [senderKyc, ...receiverKycs, hookProgram, extraMetaList]
       const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
         [Buffer.from('extra-account-metas'), VUSDC_MINT.toBuffer()],
         KYC_HOOK_PROGRAM_ID
       );
-      const [vaultKyc] = getKycPDA(vaultPDA);
+      const [dealKyc] = getKycPDA(dealPDA);
       const [providerKyc] = getKycPDA(providerPubkey);
       const [connectorKyc] = getKycPDA(connectorPubkey);
       const [protocolKyc] = getKycPDA(protocolPubkey);
@@ -302,12 +305,12 @@ export function useDealEscrow() {
           systemProgram: SystemProgram.programId,
         })
         .remainingAccounts([
-          { pubkey: KYC_HOOK_PROGRAM_ID, isWritable: false, isSigner: false },
-          { pubkey: extraAccountMetaList, isWritable: false, isSigner: false },
-          { pubkey: vaultKyc, isWritable: false, isSigner: false },
+          { pubkey: dealKyc, isWritable: false, isSigner: false },
           { pubkey: providerKyc, isWritable: false, isSigner: false },
           { pubkey: connectorKyc, isWritable: false, isSigner: false },
           { pubkey: protocolKyc, isWritable: false, isSigner: false },
+          { pubkey: KYC_HOOK_PROGRAM_ID, isWritable: false, isSigner: false },
+          { pubkey: extraAccountMetaList, isWritable: false, isSigner: false },
         ])
         .rpc();
 
