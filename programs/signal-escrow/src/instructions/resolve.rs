@@ -123,11 +123,13 @@ pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, ResolveDispute<'info>>, de
 
     deal.milestones[idx].status = MilestoneStatus::Refunded;
 
-    // Check if any milestones are still active
-    let has_active = deal.milestones.iter().any(|m| {
-        m.status == MilestoneStatus::Funded || m.status == MilestoneStatus::Disputed
+    // Cancel deal only if no milestones remain (pending, funded, or disputed)
+    let has_remaining = deal.milestones.iter().any(|m| {
+        m.status == MilestoneStatus::Pending
+            || m.status == MilestoneStatus::Funded
+            || m.status == MilestoneStatus::Disputed
     });
-    if !has_active {
+    if !has_remaining {
         deal.status = DealStatus::Cancelled;
     }
 
