@@ -72,11 +72,11 @@ export function useFaucet() {
       const [kycPDA] = getKycPDA(wallet.publicKey);
       const [configPDA] = getKycAdminPDA();
       try {
-        await kycProgram.account.kycStatus.fetch(kycPDA);
+        await (kycProgram.account as any).kycStatus.fetch(kycPDA);
         // Already registered — skip
       } catch {
         const oneYear = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-        await kycProgram.methods
+        await (kycProgram as any).methods
           .registerKyc(wallet.publicKey, 2, Buffer.from('US'), new BN(oneYear))
           .accounts({
             admin: adminKeypair.publicKey,

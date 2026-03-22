@@ -106,7 +106,7 @@ export function useKycStatus() {
       };
       const adminProvider = new AnchorProvider(connection, adminWallet as any, { commitment: 'confirmed' });
       const adminProgram = new Program(kycIdl as any, adminProvider);
-      txHash = await adminProgram.methods
+      txHash = await (adminProgram as any).methods
         .registerKyc(wallet.publicKey, kycLevel, Buffer.from(countryCode.slice(0, 2)), new BN(oneYearFromNow))
         .accounts({ admin: adminKeypair.publicKey, config: configPDA, kycStatus: kycPDA, systemProgram: SystemProgram.programId })
         .rpc();

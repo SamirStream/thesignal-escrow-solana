@@ -104,14 +104,14 @@ export function useDealEscrow() {
     try {
       const provider = new AnchorProvider(connection, wallet!, { commitment: 'confirmed' });
       const kycProgram = new Program(kycIdl as any, provider);
-      await kycProgram.account.kycStatus.fetch(kycPDA);
+      await (kycProgram.account as any).kycStatus.fetch(kycPDA);
     } catch {
       // Not registered — register now
       const provider = new AnchorProvider(connection, wallet!, { commitment: 'confirmed' });
       const kycProgram = new Program(kycIdl as any, provider);
       const [configPDA] = getKycAdminPDA();
       const oneYear = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-      await kycProgram.methods
+      await (kycProgram as any).methods
         .registerKyc(target, 2, Buffer.from('US'), new BN(oneYear))
         .accounts({ admin: adminKeypair.publicKey, config: configPDA, kycStatus: kycPDA, systemProgram: SystemProgram.programId })
         .signers([adminKeypair])
@@ -401,7 +401,7 @@ export function useDealEscrow() {
       const adminProvider = new AnchorProvider(connection, adminWallet as any, { commitment: 'confirmed' });
       const program = new Program(idl as any, adminProvider);
 
-      const txHash = await program.methods
+      const txHash = await (program as any).methods
         .resolveDispute(new BN(dealId), milestoneIdx, refundBps)
         .accounts({
           admin: adminKeypair.publicKey,
