@@ -2,7 +2,7 @@
 
 > **StableHacks 2026** · Track 3: Programmable Stablecoin Payments · Built on Solana with Token-2022
 
-**Live Demo**: [thesignal-escrow.vercel.app](https://thesignal-escrow.vercel.app) · **Network**: Localnet (devnet deploy ready)
+**Live Demo**: https://thesignal-escrow.vercel.app · **Network**: Localnet (devnet deploy ready)
 
 ---
 
@@ -12,7 +12,7 @@ A production-grade **milestone escrow** for institutional stablecoin payments �
 
 Three parties collaborate on a deal: a **Client** who pays, a **Provider** who delivers, and a **Network BD** who sources the deal. When a milestone is approved, funds split atomically in a single transaction. KYC is checked automatically by the token itself on every transfer — no way to bypass it.
 
-This is a working business model from [The Signal](https://thesignal.directory), ported from Stellar/Soroban to Solana with Token-2022 compliance features.
+This is a working business model from [The Signal](https://thesignal.directory), to Solana with Token-2022 compliance features.
 
 ---
 
@@ -37,10 +37,11 @@ If any check fails, the entire transfer reverts. This is enforced by the Solana 
 One transaction. No intermediate steps. No trust required.
 
 ```
-Milestone Released (e.g. 1,000 vUSDC, 10% fee, 40% BD share)
-├─ 900 vUSDC → Provider     (service payment)
-├─  40 vUSDC → Network BD   (connector commission)
-└─  60 vUSDC → Protocol     (platform fee)
+Milestone Released: 1,000 vUSDC | Platform Fee: 10% | BD Share: 40% of platform fee
+
+  900 vUSDC → Provider     (90% of total — service payment)
+   40 vUSDC → Network BD   (40% of the 10% platform fee — connector commission)
+   60 vUSDC → Protocol     (60% of the 10% platform fee — platform cut)
 ```
 
 ### 3. On-Chain Reputation
